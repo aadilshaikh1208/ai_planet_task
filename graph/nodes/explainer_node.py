@@ -3,6 +3,11 @@ from graph.state import AgentState
 
 
 def explainer_node(state: AgentState) -> AgentState:
+    """
+    Generates a student-friendly step-by-step explanation of the solution.
+    Skips entirely if verifier marked the solution as incorrect.
+    Adjusts explanation tone based on verifier confidence.
+    """
 
     problem     = state["input_text"]
     solution    = state["solution"]
@@ -14,7 +19,6 @@ def explainer_node(state: AgentState) -> AgentState:
     variables   = parsed.get("variables",   [])
     constraints = parsed.get("constraints", [])
 
-    # Skip explanation if verifier marked solution incorrect
     if not is_correct:
         state["explanation"] = (
             "The solution could not be verified as correct. "
@@ -23,7 +27,6 @@ def explainer_node(state: AgentState) -> AgentState:
         state["agent_trace"].append("Explainer: skipped — solution marked incorrect by verifier")
         return state
 
-    # Build compact context
     variables_str   = ", ".join(variables)   if variables   else "not specified"
     constraints_str = ", ".join(constraints) if constraints else "none"
 
@@ -69,9 +72,7 @@ One-line final answer.
 
 Write clearly for a JEE student.
 """
-
     explanation = call_llm(prompt,max_tokens=500)
-
     state["explanation"] = explanation
     state["agent_trace"].append(
         f"Explainer: explanation generated, confidence={confidence:.2f}, topic={topic}"

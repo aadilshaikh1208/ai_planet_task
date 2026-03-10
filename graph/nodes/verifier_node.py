@@ -5,57 +5,41 @@ import sympy as sp
 from utils.llm import call_llm
 from graph.state import AgentState
 
-# If final confidence is below this threshold, flag for human review
+# Below this confidence level, flag for human review
 CONFIDENCE_THRESHOLD = 0.7
 
 
-# First SymPy verification
 def sympy_verify(problem: str, solution: str, variables: list) -> dict:
     """
-    Try to extract the answer from solution text and substitute
-    back into the original equation to verify mathematically.
-
-    Returns:
-        {
-            "ran": True/False,      # whether SymPy could actually run
-            "passed": True/False,   # whether back-substitution passed
-            "detail": "..."         # what happened
-        }
+    Extract the answer from solution text and back-substitute into the equation.
+    Returns a dict with ran, passed, and detail fields.
     """
 
     try:
-        # Only works if problem has an equation (has "=")
         if "=" not in problem:
             return {"ran": False, "passed": False, "detail": "Problem has no equation to substitute into."}
 
-        # Build symbols from variables list (e.g. ["x", "y"] → x, y symbols)
         symbol_names = variables if variables else ["x"]
         symbols = {name: sp.Symbol(name) for name in symbol_names}
         main_var = list(symbols.values())[0]
 
-        # Split equation into left and right side
         left_str, right_str = problem.split("=", 1)
         left_expr  = sp.sympify(left_str,  locals=symbols)
         right_expr = sp.sympify(right_str, locals=symbols)
 
-        # Try to extract numeric answer from solution text
         answer_pattern = rf"{main_var}\s*=\s*([-\d/\.]+)"
         matches = re.findall(answer_pattern, solution)
 
         if not matches:
             return {"ran": False, "passed": False, "detail": "Could not extract a numeric answer from solution text."}
 
-        # Check each extracted answer value
         all_passed = True
         checked    = []
 
         for match in matches:
             value = sp.sympify(match)
-
-            # Substitute into both sides
             lhs = left_expr.subs(main_var, value)
             rhs = right_expr.subs(main_var, value)
-
             diff = sp.simplify(lhs - rhs)
 
             if diff == 0:
@@ -74,17 +58,12 @@ def sympy_verify(problem: str, solution: str, variables: list) -> dict:
         return {"ran": False, "passed": False, "detail": f"SymPy error: {str(e)}"}
 
 
-# LLM Review
 def llm_verify(problem: str, solution: str, topic: str, sympy_check: dict) -> dict:
     """
     Ask LLM to review the solution.
-    If SymPy already verified it, tell the LLM so it can focus
-    on reasoning quality rather than recomputing the answer.
-
-    Returns parsed dict with is_correct, confidence, reason.
+    SymPy result is passed in so the LLM doesn't contradict a hard mathematical check.
     """
 
-    # Tell LLM what SymPy found so it doesn't contradict a hard check
     if sympy_check["ran"] and sympy_check["passed"]:
         sympy_context = f"A symbolic math engine already verified the answer is correct: {sympy_check['detail']}. Focus on checking the reasoning and steps."
 
@@ -140,52 +119,41 @@ Return ONLY the JSON. No explanation. No markdown.
         }
 
 
-# Combine Both Tools into Final Verdict
 def combine_verdict(sympy_check: dict, llm_check: dict) -> tuple:
     """
-    Combine SymPy and LLM results into final is_correct + confidence.
-
-    Rules:
-    - If SymPy ran and FAILED → is_correct=False, cap confidence at 0.4
-    - If SymPy ran and PASSED → boost LLM confidence by 0.1 (max 1.0)
-    - If SymPy didn't run     → trust LLM confidence as-is
-
-    Returns: (is_correct, confidence)
+    Combine SymPy and LLM results into a final verdict.
+    SymPy pass boosts confidence by 0.1, SymPy fail caps it at 0.4 and marks incorrect.
     """
 
     is_correct = llm_check["is_correct"]
     confidence = llm_check["confidence"]
 
     if sympy_check["ran"] and sympy_check["passed"]:
-        # Hard mathematical proof — boost confidence
         confidence = min(1.0, confidence + 0.1)
 
     elif sympy_check["ran"] and not sympy_check["passed"]:
-        # Hard mathematical disproof — override
         is_correct = False
         confidence = min(confidence, 0.4)
 
     return is_correct, confidence
 
 
-# Verifier Node
 def verifier_node(state: AgentState) -> AgentState:
-
+    """
+    Runs SymPy back-substitution first, then LLM review.
+    Combines both results into a final is_correct and confidence score.
+    Triggers HITL if confidence is below threshold.
+    """
+    
     problem   = state["input_text"]
     solution  = state["solution"]
     topic     = state["topic"]
     variables = state["parsed_problem"].get("variables", [])
 
-    # SymPy back-substitution (no LLM call)
     sympy_check = sympy_verify(problem, solution, variables)
-
-    # LLM review (informed by SymPy result)
     llm_check = llm_verify(problem, solution, topic, sympy_check)
-
-    # Combine both into final verdict
     is_correct, confidence = combine_verdict(sympy_check, llm_check)
 
-    # Trigger HITL if confidence is too low
     if confidence < CONFIDENCE_THRESHOLD:
         state["needs_human_review"] = True
         state["hitl_reason"]        = (
@@ -193,7 +161,6 @@ def verifier_node(state: AgentState) -> AgentState:
             f"| SymPy: {sympy_check['detail']}"
         )
 
-    # Update state
     state["is_correct"]  = is_correct
     state["confidence"]  = confidence
     state["agent_trace"].append(
