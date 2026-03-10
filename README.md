@@ -198,6 +198,34 @@ streamlit run app.py
 
 ---
 
+## 🆓 Free LLM via FreeFlow
+
+This project uses **[FreeFlow LLM](https://github.com/PrabhakarMNaik/FreeFlow-LLM)** — a lightweight wrapper that automatically rotates between free LLM providers when rate limits are hit.
+
+Provider fallback order:
+```
+Groq → Gemini → GitHub Models
+```
+
+This means the app runs entirely on **free API tiers** with no OpenAI or paid provider required. If one provider hits its rate limit, FreeFlow silently switches to the next one without any code changes needed.
+
+All you need is at least one free API key — the app will still work even if the other two are not set.
+
+---
+
+## 🔢 Embeddings via HuggingFace
+
+For RAG retrieval and memory search, this project uses **`sentence-transformers/all-mpnet-base-v2`** from HuggingFace — a free, open-source embedding model that runs locally on CPU.
+
+No embedding API key required. The model is downloaded once (~420MB) and cached locally. It is used for:
+- Embedding knowledge base chunks into the Chroma vector store
+- Embedding solved problems into the memory collection
+- Semantic similarity search at retrieval time
+
+`normalize_embeddings=True` is set for better cosine similarity results during RAG retrieval.
+
+---
+
 ## 📚 Math Scope
 
 - Algebra
