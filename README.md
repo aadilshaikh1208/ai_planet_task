@@ -8,7 +8,7 @@ Built with: LangGraph · RAG · Multi-Agent System · HITL · Memory
 
 ## 🚀 Live Demo
 
-👉 [Add your Streamlit Cloud link here after deployment]
+👉 https://math-aimentor.streamlit.app/
 
 ---
 

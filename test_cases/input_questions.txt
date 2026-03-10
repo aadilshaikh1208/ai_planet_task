@@ -4,7 +4,7 @@ Input Field Questions :
     - Find the value of x if 2*x + 3 = 11
 
     - Find the derivative of x**3 + 2*x**2 + 5
-
+    - Find the derivative of x**4 - 4*x**2 + 9
     - Integrate x**2 + 3*x + 1
 
 Audio Question : 
