@@ -1,14 +1,3 @@
-# memory/memory_store.py
-#
-# What this file does:
-#   1. Saves every solved problem into a separate Chroma collection "math_memory"
-#   2. Retrieves semantically similar past problems at solve time
-#   3. Uses the same HuggingFace embeddings already used in RAG
-#
-# Two functions used by the rest of the app:
-#   save_memory(state)               → called from app.py after pipeline finishes
-#   retrieve_similar(problem, topic) → called from solver_node.py before solving
-
 import uuid
 from datetime import datetime
 
@@ -18,9 +7,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from utils.config import Config
 
 
-# ─────────────────────────────────────────────────────────────
-# Embeddings — same model as RAG, no extra download needed
-# ─────────────────────────────────────────────────────────────
+# Same embedding model as RAG — no extra download needed
 
 def get_embeddings():
     embeddings = HuggingFaceEmbeddings(
@@ -31,10 +18,7 @@ def get_embeddings():
     return embeddings
 
 
-# ─────────────────────────────────────────────────────────────
-# Memory collection — separate from RAG, same vector_store folder
-# ─────────────────────────────────────────────────────────────
-
+# Separate Chroma collection from RAG, stored in the same vector_store folder
 def get_memory_store():
     memory_store = Chroma(
         collection_name    = "math_memory",
@@ -57,11 +41,9 @@ def save_memory(state):
     try:
         parsed_question = state.get("input_text", "")
 
-        # Nothing to save if problem is empty
         if parsed_question.strip() == "":
             return
 
-        # Read all values from state
         input_mode       = state.get("input_mode",       "text")
         raw_input        = state.get("raw_input",         "")
         topic            = state.get("topic",             "unknown")
@@ -78,8 +60,7 @@ def save_memory(state):
         if len(solution) > 1000:
             solution = solution[:1000]
 
-        # Chroma metadata only supports string values
-        # so convert bool and float to string
+        # Chroma only supports string metadata values
         metadata = {
             "id"              : str(uuid.uuid4()),
             "timestamp"       : datetime.now().isoformat(),
@@ -93,7 +74,6 @@ def save_memory(state):
             "feedback_comment": feedback_comment,
         }
 
-        # Build document — parsed question is embedded for search
         doc = Document(
             page_content = parsed_question,
             metadata     = metadata
@@ -105,13 +85,8 @@ def save_memory(state):
         print(f"Memory saved: {parsed_question[:80]}...")
 
     except Exception as e:
-        # Memory saving should never crash the app
         print(f"Memory save failed (non-critical): {e}")
 
-
-# ─────────────────────────────────────────────────────────────
-# Retrieve similar past problems before solving
-# ─────────────────────────────────────────────────────────────
 
 def retrieve_similar(problem, topic, k=4):
     """
@@ -125,16 +100,11 @@ def retrieve_similar(problem, topic, k=4):
     try:
         memory_store = get_memory_store()
 
-        # Search for semantically similar problems
         results = memory_store.similarity_search(problem, k=k)
 
         if not results:
             return ""
 
-        # Only keep results that are useful:
-        # - same topic as current problem
-        # - were verified as correct
-        # - actually have a solution stored
         useful_results = []
 
         for doc in results:
@@ -148,6 +118,7 @@ def retrieve_similar(problem, topic, k=4):
             was_correct  = doc_correct == "True"
             has_solution = doc_solution.strip() != ""
 
+            # Skip if this is the exact same problem being solved again
             is_same_problem = doc.page_content.strip().lower() == problem.strip().lower()
 
             if same_topic and was_correct and has_solution and not is_same_problem:
@@ -158,11 +129,9 @@ def retrieve_similar(problem, topic, k=4):
         if len(useful_results) == 0:
             return ""
 
-        # Join all useful results into one string for the solver prompt
         memory_context = "\n\n---\n\n".join(useful_results)
         return memory_context
 
     except Exception as e:
-        # Memory retrieval failure should never crash the solver
         print(f"Memory retrieval failed (non-critical): {e}")
         return ""

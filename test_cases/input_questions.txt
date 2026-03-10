@@ -1,0 +1,11 @@
+Input Field Questions : 
+    - Solve x**2 - 5*x + 6 = 0
+
+    - Find the value of x if 2*x + 3 = 11
+
+    - Find the derivative of x**3 + 2*x**2 + 5
+
+    - Integrate x**2 + 3*x + 1
+
+Audio Question : 
+A bag has 3 red and 5 blue balls. What is the probability of picking a red ball?

@@ -9,10 +9,6 @@ from multimodal.audio     import run_asr
 from memory.memory_store  import save_memory
 
 
-# ─────────────────────────────────────────────────────────────
-# Page config
-# ─────────────────────────────────────────────────────────────
-
 st.set_page_config(
     page_title="JEE Math Mentor",
     page_icon="📐",
@@ -20,10 +16,7 @@ st.set_page_config(
 )
 
 
-# ─────────────────────────────────────────────────────────────
-# Cache heavy resources — load once, reuse across reruns
-# ─────────────────────────────────────────────────────────────
-
+# Load heavy resources once and reuse across reruns
 @st.cache_resource
 def get_graph():
     return build_graph()
@@ -32,10 +25,6 @@ def get_graph():
 def get_whisper_model():
     return whisper.load_model("base")
 
-
-# ─────────────────────────────────────────────────────────────
-# Build initial state for the pipeline
-# ─────────────────────────────────────────────────────────────
 
 def make_initial_state(input_text: str, input_mode: str, raw_input: str) -> dict:
     return {
@@ -58,18 +47,10 @@ def make_initial_state(input_text: str, input_mode: str, raw_input: str) -> dict
     }
 
 
-# ─────────────────────────────────────────────────────────────
-# UI — Header
-# ─────────────────────────────────────────────────────────────
-
 st.title("📐 JEE Math Mentor")
 st.caption("Powered by multi-agent AI — Parser → Router → Solver → Verifier → Explainer")
 st.divider()
 
-
-# ─────────────────────────────────────────────────────────────
-# UI — Input mode selector
-# ─────────────────────────────────────────────────────────────
 
 input_mode = st.radio(
     label="Select input mode",
@@ -77,7 +58,7 @@ input_mode = st.radio(
     horizontal=True
 )
 
-# Clear previous result when input mode changes
+# Clear result when user switches input mode
 if "last_input_mode" not in st.session_state:
     st.session_state["last_input_mode"] = input_mode
 
@@ -93,10 +74,6 @@ hitl_from_input   = False
 hitl_reason_input = ""
 
 
-# ─────────────────────────────────────────────────────────────
-# UI — Text Input
-# ─────────────────────────────────────────────────────────────
-
 if input_mode == "✏️ Text":
 
     problem_text = st.text_area(
@@ -107,10 +84,6 @@ if input_mode == "✏️ Text":
     )
     raw_input = problem_text
 
-
-# ─────────────────────────────────────────────────────────────
-# UI — Image Input
-# ─────────────────────────────────────────────────────────────
 
 elif input_mode == "🖼️ Image":
 
@@ -140,6 +113,7 @@ elif input_mode == "🖼️ Image":
             hitl_from_input   = True
             hitl_reason_input = f"OCR confidence low ({round(ocr_result['confidence'] * 100)}%). Manual review required."
 
+        # Let user edit OCR output before solving
         problem_text = st.text_area(
             label="Extracted text (edit if needed)",
             value=ocr_result["text"],
@@ -147,10 +121,6 @@ elif input_mode == "🖼️ Image":
         )
         raw_input = ocr_result["text"]
 
-
-# ─────────────────────────────────────────────────────────────
-# UI — Audio Input
-# ─────────────────────────────────────────────────────────────
 
 elif input_mode == "🎙️ Audio":
 
@@ -177,6 +147,7 @@ elif input_mode == "🎙️ Audio":
 
         st.caption(f"Detected language: {asr_result['language']} | Confidence: {round(asr_result['confidence'] * 100)}%")
 
+        # Show what Whisper heard before math phrase cleaning
         if asr_result["raw_transcript"] != asr_result["transcript"]:
             with st.expander("🔍 Raw transcript (before math phrase cleaning)"):
                 st.text(asr_result["raw_transcript"])
@@ -189,6 +160,7 @@ elif input_mode == "🎙️ Audio":
             hitl_from_input   = True
             hitl_reason_input = f"ASR confidence low ({round(asr_result['confidence'] * 100)}%). Manual review required."
 
+        # Let user edit transcript before solving
         problem_text = st.text_area(
             label="Transcript (edit if needed)",
             value=asr_result["transcript"],
@@ -197,21 +169,14 @@ elif input_mode == "🎙️ Audio":
         raw_input = asr_result["raw_transcript"]
 
 
-# ─────────────────────────────────────────────────────────────
-# UI — Solve button
-# ─────────────────────────────────────────────────────────────
-
 st.divider()
 solve_clicked = st.button("🧠 Solve", use_container_width=True)
 
 
-# ─────────────────────────────────────────────────────────────
-# UI — Run pipeline on button click
-# ─────────────────────────────────────────────────────────────
-
-st.session_state.pop("result", None)
-st.session_state["memory_saved"] = False
 if solve_clicked:
+    # Clear previous result so stale output never shows for a new problem
+    st.session_state.pop("result", None)
+    st.session_state["memory_saved"] = False
 
     if not problem_text.strip():
         st.warning("Please provide a math problem first.")
@@ -229,17 +194,12 @@ if solve_clicked:
 
             result = graph.invoke(state)
 
-        # ── Save to memory immediately after pipeline finishes ──
-        # Saved without feedback first — feedback updates it later
+        # Save to memory right after solving, before user gives feedback
         save_memory(result)
 
         st.session_state["result"]       = result
-        st.session_state["memory_saved"] = False  # tracks if feedback update saved
+        st.session_state["memory_saved"] = False
 
-
-# ─────────────────────────────────────────────────────────────
-# UI — Show results
-# ─────────────────────────────────────────────────────────────
 
 if "result" in st.session_state:
 
@@ -247,11 +207,9 @@ if "result" in st.session_state:
 
     st.divider()
 
-    # ── HITL Warning ──────────────────────────────────────────
     if result["needs_human_review"]:
         st.warning(f"⚠️ **Human Review Suggested**\n\n{result['hitl_reason']}")
 
-    # ── Topic + Confidence ────────────────────────────────────
     col1, col2 = st.columns(2)
 
     with col1:
@@ -270,17 +228,15 @@ if "result" in st.session_state:
 
     st.divider()
 
-    # ── Explanation ───────────────────────────────────────────
     st.subheader("📖 Explanation")
     st.markdown(result["explanation"])
 
-    # ── Raw solution (collapsed) ──────────────────────────────
     with st.expander("🔍 View raw solution"):
         st.markdown(result["solution"])
 
     st.divider()
 
-    # ── Retrieved Sources ─────────────────────────────────────
+    # Show which knowledge base docs were used — empty if RAG found nothing
     st.subheader("📚 Sources from Knowledge Base")
     if result["sources"]:
         for source in result["sources"]:
@@ -290,7 +246,6 @@ if "result" in st.session_state:
 
     st.divider()
 
-    # ── Feedback ──────────────────────────────────────────────
     st.subheader("Was this helpful?")
 
     col3, col4 = st.columns(2)
@@ -299,7 +254,7 @@ if "result" in st.session_state:
         if st.button("✅ Correct", use_container_width=True):
             st.session_state["result"]["feedback"] = "correct"
 
-            # Re-save to memory with feedback attached
+            # Re-save with feedback so memory knows this solution was correct
             if not st.session_state.get("memory_saved"):
                 save_memory(st.session_state["result"])
                 st.session_state["memory_saved"] = True
@@ -310,13 +265,12 @@ if "result" in st.session_state:
         if st.button("❌ Incorrect", use_container_width=True):
             st.session_state["result"]["feedback"] = "incorrect"
 
-    # Comment box appears only after incorrect clicked
     if st.session_state["result"].get("feedback") == "incorrect":
         comment = st.text_input("What was wrong? (optional)")
         if comment:
             st.session_state["result"]["feedback_comment"] = comment
 
-            # Re-save to memory with feedback + comment attached
+            # Re-save with feedback + comment attached
             if not st.session_state.get("memory_saved"):
                 save_memory(st.session_state["result"])
                 st.session_state["memory_saved"] = True
@@ -325,7 +279,6 @@ if "result" in st.session_state:
 
     st.divider()
 
-    # ── Agent Trace ───────────────────────────────────────────
     with st.expander("🔎 Agent Trace"):
         for step in result["agent_trace"]:
             st.markdown(f"→ `{step}`")

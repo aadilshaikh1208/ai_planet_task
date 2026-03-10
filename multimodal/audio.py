@@ -1,31 +1,12 @@
-# multimodal/audio.py
-#
-# What this file does:
-#   1. Takes an uploaded audio file (mp3/wav/m4a/ogg/webm)
-#   2. Runs Whisper (base model) to transcribe speech → text
-#   3. Converts math-specific phrases to proper math notation
-#      e.g. "x squared" → "x**2", "square root of x" → "sqrt(x)"
-#   4. Calculates confidence from Whisper's no_speech_prob
-#   5. Returns transcript + confidence + HITL flag
-#
-# Used by: app.py when user selects "Audio" input mode
-# HITL triggers when: confidence < ASR_CONFIDENCE_THRESHOLD (0.6)
-#
-# Note: Whisper model is loaded once and cached by app.py using
-#       @st.cache_resource to avoid reloading on every audio upload
-
 import re
 import whisper
 
-# Confidence threshold for audio — slightly lower than OCR (0.7)
-# because Whisper is generally more reliable than OCR on math text
+# Trigger HITL when confidence drops below this
 ASR_CONFIDENCE_THRESHOLD = 0.6
 
-# ─────────────────────────────────────────────────────────────
-# Math phrase → notation mapping
-# Handles common spoken math phrases JEE students would say
-# ─────────────────────────────────────────────────────────────
 
+# Spoken math phrases mapped to proper notation
+# Whisper transcribes "x squared" as text — we convert it to x**2
 MATH_PHRASE_MAP = [
 
     # Powers and roots
@@ -62,16 +43,10 @@ MATH_PHRASE_MAP = [
 
 
 def clean_math_phrases(text: str) -> str:
-    """
-    Replace spoken math phrases with proper math notation.
-    Applies all rules in MATH_PHRASE_MAP in order.
-    """
-
     cleaned = text.lower().strip()
 
     for pattern, replacement in MATH_PHRASE_MAP:
         cleaned = re.sub(pattern, replacement, cleaned)
-
     return cleaned
 
 
@@ -81,30 +56,16 @@ def clean_math_phrases(text: str) -> str:
 
 def run_asr(audio_path: str, model: whisper.Whisper) -> dict:
     """
-    Transcribe audio file using Whisper and clean math phrases.
-
-    Args:
-        audio_path : path to the saved audio file
-        model      : loaded Whisper model (passed in from app.py cache)
-
-    Returns:
-        {
-            "transcript":      "cleaned transcription text",
-            "raw_transcript":  "original whisper output before cleaning",
-            "confidence":      0.85,
-            "needs_hitl":      False,
-            "language":        "en"
-        }
+    Transcribe audio using Whisper and convert spoken math phrases to notation.
+    Whisper model is loaded once in app.py and passed in here.
     """
 
     try:
-        # Transcribe — Whisper handles format detection automatically
         result = model.transcribe(audio_path)
 
         raw_transcript = result.get("text", "").strip()
         language       = result.get("language", "unknown")
 
-        # No speech detected at all
         if not raw_transcript:
             return {
                 "transcript"    : "",
@@ -114,27 +75,23 @@ def run_asr(audio_path: str, model: whisper.Whisper) -> dict:
                 "language"      : language
             }
 
-        # Calculate confidence from segments
-        # no_speech_prob = probability audio is silence/unclear
-        # confidence = 1 - average no_speech_prob across all segments
+       # Confidence = 1 - avg no_speech_prob across segments
+        # no_speech_prob is Whisper's estimate of silence/unclear audio
         segments = result.get("segments", [])
 
         if segments:
             avg_no_speech = sum(s["no_speech_prob"] for s in segments) / len(segments)
             confidence = round(1.0 - avg_no_speech, 2)
         else:
-            # No segments means Whisper wasn't sure — treat as low confidence
             confidence = 0.5
 
-        # Clean math phrases → proper notation
         cleaned_transcript = clean_math_phrases(raw_transcript)
 
-        # Trigger HITL if confidence too low
         needs_hitl = confidence < ASR_CONFIDENCE_THRESHOLD
 
         return {
             "transcript"    : cleaned_transcript,
-            "raw_transcript": raw_transcript,       # shown to user for confirmation
+            "raw_transcript": raw_transcript,     
             "confidence"    : confidence,
             "needs_hitl"    : needs_hitl,
             "language"      : language
